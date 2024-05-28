@@ -14,5 +14,6 @@ pipx install openai
 pip install python-datauri
 pip install git+https://github.com/jcheng5/shinymedia
 
-#Use VSCodium or VSCode
+# IDE setup
+Use VSCodium or VSCode
 Install Shiny extention
