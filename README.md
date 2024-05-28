@@ -15,8 +15,7 @@ pip install python-datauri
 pip install git+https://github.com/jcheng5/shinymedia
 
 # IDE setup
-Use VSCodium or VSCode
-Install Shiny extention
+Use VSCodium or VSCode, then install Shiny extention
 
 # Thanks
 This has bring to you based on an idea of Joe Cheng @Posit
