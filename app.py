@@ -6,14 +6,16 @@ import openaikey
 import ffmpeg
 from base64 import b64decode
 
-
+# Step 1 : Split audio and video frames
 def split_video(video_file, framesnumber = 1):
+    # If not a file but base64 video, convert to a file
     if video_file[:5] == 'data:':
         str = video_file[22:]
         video_file = temppath+"/video.mp4"
         with open(video_file, 'wb') as f:
             f.write(b64decode(str))
     
+    # Extract frames from the video
     process = (
         ffmpeg
         .input(video_file)
@@ -21,19 +23,21 @@ def split_video(video_file, framesnumber = 1):
         .overwrite_output()
         .run()
     )
+
+    #extract audio from the video
+    audio_uri = temppath+'/audio.mp3'
     process = (
         ffmpeg
         .input(video_file)
-        .output(temppath+'/audio.mp3')
+        .output(audio_uri)
         .overwrite_output()
         .run()
     )
 
-    #audio_uri = datauri.DataURI.from_file(path+'/audio.mp3')
-    audio_uri = temppath+'/audio.mp3'
     video_uris = [ datauri.DataURI.from_file(temppath+'/frame_%d.png'%d) for d in range(1, framesnumber+1)]
     return audio_uri, video_uris
 
+# Step 2 : transform the audio from video to text
 def Transcription(audio_uri):
     transcription = client.audio.transcriptions.create(
         model = "whisper-1", 
@@ -46,8 +50,8 @@ def Transcription(audio_uri):
     print(user_prompt)
     return user_prompt
 
+# Step 3 : Send audio text and frames to ChatGPT4o for analysis and get its answer 
 def GetAnswerTextChatPPT4o(user_prompt, image_uris):
-    sysprompt = os.path.dirname(__file__)+'/system_prompt.txt'
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -80,8 +84,8 @@ def GetAnswerTextChatPPT4o(user_prompt, image_uris):
     print(response_text)
     return response_text
 
-def Text2Audio(response_text):
-    # Use OpenAI's text-to-speech model to turn the generoted text into audio. 
+# Step 4 : transform the text answer of ChatGPT4o to audio with OpenAI TTS API
+def Text2Audio(response_text): 
     audio = client.audio.speech.create(
         model           = "tts-1", 
         voice           = "nova",
@@ -92,6 +96,7 @@ def Text2Audio(response_text):
     audio.stream_to_file(response_audio_uri) 
     return response_audio_uri
 
+# Not Used in this demo : all in one process from a video snippet, return audio file
 def AskChatGPT4o(video_file): 
     audio_uri, image_uris = split_video(video_file)
     user_prompt = Transcription(audio_uri)
@@ -99,33 +104,43 @@ def AskChatGPT4o(video_file):
     response_audio_uri = Text2Audio(response_text)
     return response_audio_uri
 
+# Web interface for quick prototyping using Shiny framework
 from shiny.express import input, render, ui
 from shinymedia import input_video_clip, audio_spinner 
 
-
 # Connect to OpenAI
 client = OpenAI()
+
+# Use a temp folder in the parent directory (else it perturbate Shiny in case of changes)
 temppath = os.path.dirname(os.path.dirname(__file__))+"/TempDir"
 
+# Widget to record and display video camera and sound
 input_video_clip("video", style="max-width: 600px;", class_="mx-auto py-3") 
-#ui.input_file("video", label="Upload a video clip") 
 
+# Will be executed when a video has been recorded
 @render.express
 def video_size():
+    # A video exist
     if input.video() is not None:
+        # Create a progress information as the whole process may be a little bit long
         with ui.Progress() as p:
-            #video_file = input.video()[0]["datapath"]
+            # Step 1: Split
             p.set(message="Processing media...")
             audio_uri, image_uris = split_video(input.video())
+            # Step 2: Recognize
             p.set(message="Processing audio recognition...")
             user_prompt = Transcription(audio_uri)
+            # Display recognized text
             ui.p("Vous avez dit : " + user_prompt, placeholder=True)
+            # Send frames and recognized text to ChatGPT4o 
             p.set(message="Processing answer...")
             response_text = GetAnswerTextChatPPT4o(user_prompt, image_uris)
+            # display the answer
             ui.p("La réponse est : " + response_text, placeholder=True)
+            # Convert the answer to audio
             p.set(message="Processing audio generation...")
             audio_uri = Text2Audio(response_text)
-        #audio_uri = datauri.DataURI.from_file(audio_uri)
-        #ui.tags.audio(src=audio, controls=True)
+        # Speak the audio
         audio_spinner(src=audio_uri)
+        # Finished, next recording please
         return
